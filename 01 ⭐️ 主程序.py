@@ -63,6 +63,8 @@ import edge_tts
 import requests
 
 import json
+from 音标查询 import 构建翻译结果
+from 翻译卡片 import 创建翻译卡片
 # 记录拖动后窗口位置的本地文件
 位置记录文件 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "翻译窗口位置.json")
 
@@ -422,7 +424,8 @@ async def 翻译并显示(文本):
             await 循环.run_in_executor(None, 保存翻译缓存)
 
         print("翻译结果：", 译文)
-        翻译队列.put(译文)
+        显示内容 = await 循环.run_in_executor(None, 构建翻译结果, 文本, 待翻译文本, 译文)
+        翻译队列.put(显示内容)
 
         # 无论是否命中缓存，都更新学习记录（相同内容自动合并计数，只保留最新时间）
         await 循环.run_in_executor(None, 更新翻译记录, 文本, 待翻译文本, 译文)
@@ -622,18 +625,7 @@ def 翻译窗口线程():
         win.attributes("-topmost", True)
         win.configure(bg="#1e1e1e")
 
-        标签 = tk.Label(
-            win,
-            text=文本,
-            font=("微软雅黑", 14),
-            fg="white",
-            bg="#1e1e1e",
-            wraplength=420,
-            justify="left",
-            padx=16,
-            pady=12,
-        )
-        标签.pack()
+        创建翻译卡片(win, 文本)
 
         win.update_idletasks()
 
@@ -655,16 +647,16 @@ def 翻译窗口线程():
         拖动状态 = {"x": 0, "y": 0}
 
         def 开始拖动(event):
-            拖动状态["x"] = event.x
-            拖动状态["y"] = event.y
+            拖动状态["x"] = event.x_root - win.winfo_x()
+            拖动状态["y"] = event.y_root - win.winfo_y()
 
             if 状态["timer"] is not None:
                 root.after_cancel(状态["timer"])
                 状态["timer"] = None
 
         def 拖动中(event):
-            新x = win.winfo_x() + (event.x - 拖动状态["x"])
-            新y = win.winfo_y() + (event.y - 拖动状态["y"])
+            新x = event.x_root - 拖动状态["x"]
+            新y = event.y_root - 拖动状态["y"]
             win.geometry(f"+{新x}+{新y}")
 
         def 结束拖动(event):
@@ -678,7 +670,8 @@ def 翻译窗口线程():
                 状态["timer"] = None
             关闭窗口()
 
-        for 控件 in (win, 标签):
+        # 子控件事件会经 Tk bindtags 传到所属顶层窗口，统一绑定避免重复回调。
+        for 控件 in (win,):
             控件.bind("<ButtonPress-1>", 开始拖动)
             控件.bind("<B1-Motion>", 拖动中)
             控件.bind("<ButtonRelease-1>", 结束拖动)
