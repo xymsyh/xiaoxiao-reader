@@ -68,7 +68,7 @@ import edge_tts
 import requests
 
 import json
-from 音标查询 import 构建翻译结果
+from 音标查询 import 构建翻译结果, 剑桥音标客户端
 from 翻译卡片 import 创建翻译卡片
 # 记录拖动后窗口位置的本地文件
 位置记录文件 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "翻译窗口位置.json")
@@ -117,6 +117,7 @@ except ValueError as e:
 KEY = 配置["微软翻译API"]["密钥"]
 REGION = 配置["微软翻译API"]["区域"]
 ENDPOINT = 配置["微软翻译API"]["地址"]
+音标客户端 = 剑桥音标客户端(超时秒=配置["剑桥音标"]["超时秒"])
 
 # 采样率与 edge-tts 输出一致（24kHz 单声道），缓冲区调小，减少起播延迟
 pygame.mixer.pre_init(frequency=24000, size=-16, channels=1, buffer=512)
@@ -409,6 +410,22 @@ def 调用翻译接口(文本, 目标语言="zh-Hans"):
     return 结果[0]["translations"][0]["text"]
 
 
+async def 补充单词音标(显示内容):
+    if "单词" not in 显示内容:
+        return
+    try:
+        查询 = asyncio.get_running_loop().run_in_executor(None, 音标客户端.查询, 显示内容["单词"])
+        音标结果 = await asyncio.wait_for(查询, timeout=音标客户端.超时秒 + 0.5)
+    except asyncio.CancelledError:
+        raise
+    except asyncio.TimeoutError:
+        音标结果 = {"音标提示": "剑桥音标查询超时，请查看原页"}
+    except Exception as e:
+        print("音标查询失败：", type(e).__name__)
+        音标结果 = {"音标提示": "剑桥音标暂不可用，请查看原页"}
+    翻译队列.put({**音标结果, "更新音标": True, "请求ID": 显示内容["请求ID"]})
+
+
 async def 翻译并显示(文本):
     try:
         循环 = asyncio.get_event_loop()
@@ -429,11 +446,15 @@ async def 翻译并显示(文本):
             await 循环.run_in_executor(None, 保存翻译缓存)
 
         print("翻译结果：", 译文)
-        显示内容 = await 循环.run_in_executor(None, 构建翻译结果, 文本, 待翻译文本, 译文)
+        显示内容 = 构建翻译结果(文本, 待翻译文本, 译文)
+        显示内容["请求ID"] = str(uuid.uuid4())
         翻译队列.put(显示内容)
 
         # 无论是否命中缓存，都更新学习记录（相同内容自动合并计数，只保留最新时间）
-        await 循环.run_in_executor(None, 更新翻译记录, 文本, 待翻译文本, 译文)
+        await asyncio.gather(
+            补充单词音标(显示内容),
+            循环.run_in_executor(None, 更新翻译记录, 文本, 待翻译文本, 译文),
+        )
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -594,7 +615,7 @@ def 翻译窗口线程():
     root = tk.Tk()
     root.withdraw()
 
-    状态 = {"win": None, "timer": None}
+    状态 = {"win": None, "timer": None, "卡片": None, "请求ID": None}
 
     # 读取上次记住的窗口位置（如果文件不存在或损坏，就用 None，走默认居中逻辑）
     记住的位置 = None
@@ -621,8 +642,15 @@ def 翻译窗口线程():
             except tk.TclError:
                 pass
             状态["win"] = None
+        状态["卡片"] = None
+        状态["请求ID"] = None
 
     def 显示译文(文本):
+        if isinstance(文本, dict) and 文本.get("更新音标"):
+            # 只更新仍在显示的同一张卡片；关闭后不重开，也不覆盖后来的词条。
+            if 状态["win"] is not None and 文本.get("请求ID") == 状态["请求ID"]:
+                状态["卡片"].更新音标(文本)
+            return
         关闭窗口()
 
         win = tk.Toplevel(root)
@@ -630,7 +658,8 @@ def 翻译窗口线程():
         win.attributes("-topmost", True)
         win.configure(bg="#1e1e1e")
 
-        创建翻译卡片(win, 文本)
+        状态["卡片"] = 创建翻译卡片(win, 文本)
+        状态["请求ID"] = 文本.get("请求ID") if isinstance(文本, dict) else None
 
         win.update_idletasks()
 

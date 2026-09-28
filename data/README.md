@@ -1,21 +1,16 @@
-# 美式 IPA 词典来源
+# 音标来源迁移说明
 
-`en_US.txt` 基于 [open-dict-data/ipa-dict](https://github.com/open-dict-data/ipa-dict) 的 English (General American) 词表，随项目分发并进行下方记录的单词级修正，用于离线查询，不是从拼写推测音标。
+项目已移除原来的 `en_US.txt` 自动转换词表及相关分发许可证。旧词表的音素表示和重音处理不能保证符合学习词典；单词级修补不能解决整体问题。
 
-- 上游版本：`43c3570eb3553bdd19fccd2bd0091534889af023`
-- 原始文件：[data/en_US.txt](https://github.com/open-dict-data/ipa-dict/blob/43c3570eb3553bdd19fccd2bd0091534889af023/data/en_US.txt)
-- 上游原始文件 SHA-256（不含本项目修正）：`2af6f154a5c363275f052d1f85acedef38ed185ca9745aa4314be77f6b70de67`
-- 文件约 3.2 MB，125,927 行；一词可能包含多个读音，不能按词性自动消歧。
-- 保留上游 IPA 符号（例如 `ɹ`、`ɫ`）和重音标记，因此可能与其他学习词典的转写习惯不同。
+现在所有单词均按需读取 **Cambridge Dictionary 公开词条网页**，无需 API 密钥，代码位于 `音标查询.py`：
 
-上游说明美式数据基于 [lingz/cmudict-ipa](https://github.com/lingz/cmudict-ipa)，并使用 [syllabify](https://github.com/kylebgorman/syllabify) 添加重音。更早的数据来源为 CMU Pronouncing Dictionary。
+1. 请求对应单词的 `https://dictionary.cambridge.org/dictionary/english/{word}` 页面。
+2. 核对页面词头与查询词一致，仅提取明确标记为 US 的 IPA，不使用 UK、推荐词、派生词或词根的读音。
+3. 去掉音节分隔点和排版空白；保留原始音素、主次重音、长音、闪音和可选音标记。不进行 `ɝ → ər` 等音素替换。
+4. 音标异步补充到当前翻译卡片，显示来源和原页入口。
 
-本目录附带 ipa-dict、cmudict-ipa 和 CMUdict 的许可文件。查询结果反映该版本词表，可能存在遗漏或错误；未收录时不尝试自动生成读音。
+例如页面中的 `/kənˌfɪɡ.jəˈreɪ.ʃən/` 显示为 `/kənˌfɪɡjəˈreɪʃən/`，没有对该单词编写特殊规则。
 
-## 单词级修正记录
+不随源码分发整份剑桥词典，不把查询到的音标持久化到翻译缓存。网页内容仍归原权利人所有，使用时应遵循网站条款。网站结构变化、超时、404、403 或安全验证可能导致查询失败；此时明确提示并保留中文译文，不用旧词表或其他来源冒充剑桥音标。403/429/验证页面出现后暂停自动请求一分钟。
 
-| 单词 | 上游标注 | 本项目标注 | 依据 |
-| --- | --- | --- | --- |
-| configuration | /kənˌfɪɡjɝˈeɪʃən/ | /kənˌfɪɡjəˈreɪʃən/ | 用户确认，符合[剑桥词典美式标注](https://dictionary.cambridge.org/us/pronunciation/english/configuration)，省略音节分隔点 |
-
-仅修正明确核对的词条，不全局替换 `ɝ`。升级上游词表时需保留上述修正并运行回归测试。
+回归测试使用人工构造的 HTML 结构样例验证词头、地域和音标提取，以及故障和异步更新行为；它们不等同于全词典人工校对，也不保证网站始终允许访问。
