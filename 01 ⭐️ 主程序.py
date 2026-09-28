@@ -56,6 +56,12 @@ import time
 import hashlib
 from datetime import datetime
 
+
+def 输出耗时(步骤, 开始时间):
+    """以毫秒输出单个步骤的耗时。perf_counter 不受系统时钟校准影响。"""
+    耗时毫秒 = (time.perf_counter() - 开始时间) * 1000
+    print(f"[耗时] {步骤}: {耗时毫秒:.1f} ms", flush=True)
+
 # 清除代理环境变量
 for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]:
     os.environ.pop(key, None)
@@ -149,6 +155,7 @@ OCR引擎锁 = threading.Lock()
 # ============================================================
 
 def 获取选中文本():
+    开始时间 = time.perf_counter()
     哨兵 = "__CLIPBOARD_WAITING__"
 
     pyperclip.copy(哨兵)
@@ -162,10 +169,12 @@ def 获取选中文本():
         文本 = pyperclip.paste()
 
     if 文本 == 哨兵:
+        输出耗时("获取选中文本（超时）", 开始时间)
         return ""
 
     文本 = 文本.strip()
     pyperclip.copy(文本)  # 保留选中文本到剪贴板
+    输出耗时("获取选中文本", 开始时间)
     return 文本
 
 
@@ -365,6 +374,7 @@ def 语音缓存文件路径(键):
 
 def _写入语音缓存(键, 文件名, 缓存路径, 文本, 音频字节):
     """在线程池里执行的同步写盘逻辑，供 run_in_executor 调用，不阻塞事件循环/播放"""
+    开始时间 = time.perf_counter()
     try:
         with open(缓存路径, "wb") as f:
             f.write(音频字节)
@@ -378,6 +388,8 @@ def _写入语音缓存(键, 文件名, 缓存路径, 文本, 音频字节):
         保存语音缓存索引()
     except Exception as e:
         print("保存语音缓存失败：", e)
+    finally:
+        输出耗时("语音/写入缓存", 开始时间)
 
 
 # ============================================================
@@ -410,13 +422,22 @@ def 调用翻译接口(文本, 目标语言="zh-Hans"):
 
 
 async def 翻译并显示(文本):
+    循环 = asyncio.get_event_loop()
+    总开始 = 循环.time()
+
+    def 输出翻译耗时(步骤, 开始):
+        print(f"[耗时] 翻译/{步骤}: {(循环.time() - 开始) * 1000:.1f} ms", flush=True)
+
     try:
-        循环 = asyncio.get_event_loop()
+        开始 = 循环.time()
         待翻译文本 = 预处理翻译文本(文本)
         键 = 缓存键(待翻译文本)
+        输出翻译耗时("预处理文本", 开始)
 
+        开始 = 循环.time()
         译文 = 翻译缓存.get(键)
         来自缓存 = 译文 is not None
+        输出翻译耗时("查询缓存", 开始)
 
         if 来自缓存:
             print("命中翻译缓存，跳过 API 调用")
@@ -424,21 +445,34 @@ async def 翻译并显示(文本):
             if not KEY:
                 翻译队列.put("在线翻译未配置：请在 配置.ini 中填写微软翻译 API 密钥，然后重启。朗读仍可使用。")
                 return
+            开始 = 循环.time()
             译文 = await 循环.run_in_executor(None, 调用翻译接口, 待翻译文本)
+            输出翻译耗时("调用 API", 开始)
             翻译缓存[键] = 译文
+            开始 = 循环.time()
             await 循环.run_in_executor(None, 保存翻译缓存)
+            输出翻译耗时("保存缓存", 开始)
 
         print("翻译结果：", 译文)
+        开始 = 循环.time()
         显示内容 = await 循环.run_in_executor(None, 构建翻译结果, 文本, 待翻译文本, 译文)
+        输出翻译耗时("构建翻译卡片数据", 开始)
+
+        开始 = 循环.time()
         翻译队列.put(显示内容)
+        输出翻译耗时("提交翻译窗口", 开始)
 
         # 无论是否命中缓存，都更新学习记录（相同内容自动合并计数，只保留最新时间）
+        开始 = 循环.time()
         await 循环.run_in_executor(None, 更新翻译记录, 文本, 待翻译文本, 译文)
+        输出翻译耗时("保存学习记录", 开始)
     except asyncio.CancelledError:
         raise
     except Exception as e:
         print("翻译失败：", e)
         翻译队列.put("翻译失败，请检查网络、API 配置和服务额度；详情见控制台。")
+    finally:
+        输出翻译耗时("总耗时", 总开始)
 
 
 # ============================================================
@@ -453,19 +487,31 @@ async def 翻译并显示(文本):
 
 def 识别截图(截图):
     global OCR引擎
+    总开始 = time.perf_counter()
     from rapidocr_onnxruntime import RapidOCR
     # 用 PNG 字节传入，避免 RGB/BGR 通道顺序差异。
+    开始 = time.perf_counter()
     缓冲 = io.BytesIO()
     截图.save(缓冲, format="PNG")
+    输出耗时("OCR/转换截图", 开始)
+
+    开始 = time.perf_counter()
     with OCR引擎锁:
         if OCR引擎 is None:
             OCR引擎 = RapidOCR()
         结果, _ = OCR引擎(缓冲.getvalue())
-    return "\n".join(项[1].strip() for 项 in (结果 or []) if 项[1].strip())
+    输出耗时("OCR/引擎识别", 开始)
+
+    开始 = time.perf_counter()
+    文本 = "\n".join(项[1].strip() for 项 in (结果 or []) if 项[1].strip())
+    输出耗时("OCR/整理文本", 开始)
+    输出耗时("OCR/识别总耗时", 总开始)
+    return 文本
 
 
 def 开始屏幕框选(root):
     win = None
+    框选开始 = time.perf_counter()
     def 清理():
         if win is not None:
             try:
@@ -478,6 +524,7 @@ def 开始屏幕框选(root):
         清理()
         OCR忙碌.clear()
         print("已取消 OCR 框选")
+        输出耗时("OCR/框选（已取消）", 框选开始)
 
     try:
         from PIL import ImageGrab, ImageTk
@@ -485,7 +532,9 @@ def 开始屏幕框选(root):
         if importlib.util.find_spec("rapidocr_onnxruntime") is None:
             raise ImportError("缺少 rapidocr-onnxruntime")
         # 先截图再显示遮罩，避免把框选边框识别为文字。
+        开始 = time.perf_counter()
         截图 = ImageGrab.grab(all_screens=True)
+        输出耗时("OCR/全屏截图", 开始)
         左 = ctypes.windll.user32.GetSystemMetrics(76)
         上 = ctypes.windll.user32.GetSystemMetrics(77)
         宽, 高 = 截图.size
@@ -524,6 +573,7 @@ def 开始屏幕框选(root):
                 取消()
                 return
             区域 = 截图.crop((x0, y0, x1, y1))
+            输出耗时("OCR/用户框选", 框选开始)
             清理()
             if 主事件循环 is not None and 主事件循环.is_running():
                 asyncio.run_coroutine_threadsafe(重新触发处理(截图=区域), 主事件循环)
@@ -555,14 +605,19 @@ def 开始屏幕框选(root):
 
 
 async def 处理OCR截图(截图):
+    总开始 = time.perf_counter()
     try:
         print("正在 OCR 识别……")
+        开始 = time.perf_counter()
         文本 = await asyncio.get_running_loop().run_in_executor(None, 识别截图, 截图)
+        输出耗时("OCR/等待识别完成", 开始)
         if not 文本:
             翻译队列.put("未识别到文字，请重新框选清晰的文字区域。")
             return
         print("OCR 识别结果：", 文本)
+        开始 = time.perf_counter()
         pyperclip.copy(文本)
+        输出耗时("OCR/复制识别文本", 开始)
         await 处理选中内容(文本)
     except asyncio.CancelledError:
         raise
@@ -571,6 +626,7 @@ async def 处理OCR截图(截图):
         翻译队列.put(f"OCR 识别失败：{e}")
     finally:
         OCR忙碌.clear()
+        输出耗时("OCR/处理总耗时", 总开始)
 
 
 def 截图按下(event):
@@ -623,6 +679,7 @@ def 翻译窗口线程():
             状态["win"] = None
 
     def 显示译文(文本):
+        开始时间 = time.perf_counter()
         关闭窗口()
 
         win = tk.Toplevel(root)
@@ -686,6 +743,7 @@ def 翻译窗口线程():
         if 状态["timer"] is not None:
             root.after_cancel(状态["timer"])
         状态["timer"] = root.after(99000, 关闭窗口)  # 延长为 99 秒
+        输出耗时("翻译/渲染并显示窗口", 开始时间)
 
     def 轮询队列():
         try:
@@ -713,16 +771,20 @@ async def 朗读文本(文本):
     global 当前音频缓冲
 
     print("\n正在朗读：", 文本)
+    总开始 = time.perf_counter()
 
     循环 = asyncio.get_event_loop()
+    开始 = time.perf_counter()
     键 = 语音缓存键(文本)
     缓存路径, 文件名 = 语音缓存文件路径(键)
+    输出耗时("语音/计算缓存路径", 开始)
 
     try:
         音频 = None
 
         # 先查本地语音缓存：命中就直接读文件播放，完全跳过 edge-tts 的网络合成，
         # 这是"选中→出声"延迟的主要来源，命中缓存基本是毫秒级出声
+        开始 = time.perf_counter()
         if os.path.isfile(缓存路径):
             try:
                 with open(缓存路径, "rb") as f:
@@ -731,8 +793,10 @@ async def 朗读文本(文本):
             except Exception as e:
                 print("读取语音缓存失败，将重新合成：", e)
                 音频 = None
+        输出耗时("语音/查询并读取缓存", 开始)
 
         if not 音频:
+            开始 = time.perf_counter()
             音频字节 = bytearray()
             communicate = edge_tts.Communicate(text=文本, voice=语音)
 
@@ -745,14 +809,19 @@ async def 朗读文本(文本):
                 return
 
             音频 = bytes(音频字节)
+            输出耗时("语音/TTS 合成", 开始)
 
             # 写盘放到线程池执行，不等待其完成，不拖慢本次播放
+            开始 = time.perf_counter()
             循环.run_in_executor(None, _写入语音缓存, 键, 文件名, 缓存路径, 文本, 音频)
+            输出耗时("语音/提交缓存写入任务", 开始)
 
+        开始 = time.perf_counter()
         pygame.mixer.music.stop()
         当前音频缓冲 = io.BytesIO(音频)
         pygame.mixer.music.load(当前音频缓冲, "mp3")
         pygame.mixer.music.play()
+        输出耗时("语音/加载并开始播放", 开始)
         print("正在播放……")
 
     except asyncio.CancelledError:
@@ -761,6 +830,8 @@ async def 朗读文本(文本):
 
     except Exception as e:
         print("\n朗读失败：", e)
+    finally:
+        输出耗时("语音/到开始播放总耗时", 总开始)
 
 
 def 替换下划线为空格(文本):
@@ -768,24 +839,33 @@ def 替换下划线为空格(文本):
 
 
 async def 处理选中内容(文本=None):
+    总开始 = time.perf_counter()
     if 文本 is None:
         文本 = await asyncio.get_event_loop().run_in_executor(None, 获取选中文本)
     if not 文本:
         print("没有检测到选中的文字")
+        输出耗时("本次处理/总耗时", 总开始)
         return
 
+    开始 = time.perf_counter()
     朗读用文本 = 替换下划线为空格(文本)
-    任务列表 = [asyncio.create_task(朗读文本(朗读用文本))]
-
     # 不含中文 且 不是代码 → 额外执行翻译；含中文或疑似代码则跳过翻译
-    if 含中文(文本):
+    包含中文 = 含中文(文本)
+    疑似代码 = False if 包含中文 else 是否是代码(文本)
+    输出耗时("本次处理/预处理与文本判断", 开始)
+
+    任务列表 = [asyncio.create_task(朗读文本(朗读用文本))]
+    if 包含中文:
         pass
-    elif 是否是代码(文本):
+    elif 疑似代码:
         print("检测到选中内容疑似代码，跳过翻译")
     else:
         任务列表.append(asyncio.create_task(翻译并显示(文本)))
 
-    await asyncio.gather(*任务列表, return_exceptions=True)
+    try:
+        await asyncio.gather(*任务列表, return_exceptions=True)
+    finally:
+        输出耗时("本次处理/总耗时", 总开始)
 
 
 async def 重新触发处理(截图=None):
@@ -793,16 +873,20 @@ async def 重新触发处理(截图=None):
     global 当前处理任务
 
     if 当前处理任务 is not None and not 当前处理任务.done():
+        开始 = time.perf_counter()
         当前处理任务.cancel()
         try:
             await 当前处理任务
         except asyncio.CancelledError:
             pass
+        输出耗时("任务调度/取消上一次处理", 开始)
 
+    开始 = time.perf_counter()
     if 截图 is None:
         当前处理任务 = asyncio.create_task(处理选中内容())
     else:
         当前处理任务 = asyncio.create_task(处理OCR截图(截图))
+    输出耗时("任务调度/启动新处理", 开始)
 
 
 # ============================================================
