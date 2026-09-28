@@ -1,0 +1,6 @@
+*.mp3
+*.json
+*.jsonl
+*后删*
+配置.ini
+__pycache__/
