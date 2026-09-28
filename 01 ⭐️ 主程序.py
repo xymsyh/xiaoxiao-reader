@@ -3,6 +3,11 @@ import io
 import sys
 import glob
 
+# 英文 Windows 的重定向输出可能使用 cp1252，统一编码以支持中文和 IPA。
+for 输出流 in (sys.stdout, sys.stderr):
+    if hasattr(输出流, "reconfigure"):
+        输出流.reconfigure(encoding="utf-8", errors="backslashreplace")
+
 if sys.platform != "win32":
     raise SystemExit("晓晓朗读目前仅支持 Windows。")
 
