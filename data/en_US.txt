@@ -22741,7 +22741,7 @@ confidentially	/ˌkɑnfəˈdɛnʃəɫi/
 confidently	/ˈkɑnfədəntɫi/
 confides	/kənˈfaɪdz/
 confiding	/kənˈfaɪdɪŋ/
-configuration	/kənˌfɪɡjɝˈeɪʃən/
+configuration	/kənˌfɪɡjəˈreɪʃən/
 configurations	/kənˌfɪɡjɝˈeɪʃənz/
 configure	/kənˈfɪɡjɝ/
 configured	/kənˈfɪɡjɝd/

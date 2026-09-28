@@ -29,6 +29,14 @@ class IPATests(unittest.TestCase):
                                     ("helloWorld", "hello World"), ("hello_world", "hello world")):
             self.assertEqual(构建翻译结果(original, processed, "你好世界"), {"译文": "你好世界"})
 
+    def test_configuration_corrected_pronunciation(self):
+        for word in ("configuration", "Configuration", "configuration!"):
+            with self.subTest(word=word):
+                result = 构建翻译结果(word, word, "配置")
+                self.assertEqual(result["音标"], ["/kənˌfɪɡjəˈreɪʃən/"])
+        # 其他词中的卷舌元音不得被全局替换。
+        self.assertIn("ɝ", " ".join(构建翻译结果("bird", "bird", "鸟")["音标"]))
+
     def test_unknown_word_and_missing_dictionary_do_not_break_translation(self):
         self.assertIn("未收录", 构建翻译结果("zzzxxyyzz", "zzzxxyyzz", "测试")["音标提示"])
         with patch.object(音标查询, "加载词典", side_effect=FileNotFoundError):
