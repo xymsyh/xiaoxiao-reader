@@ -3,6 +3,9 @@ import io
 import sys
 import glob
 
+if sys.platform != "win32":
+    raise SystemExit("晓晓朗读目前仅支持 Windows。")
+
 def _修复tcl环境():
     """修复被污染的 TCL_LIBRARY / TK_LIBRARY 环境变量，
     强制指向当前 Python 解释器自带的 tcl/tk 目录"""
@@ -38,7 +41,7 @@ if sys.platform == "win32":
         except Exception:
             pass
 
-import tkinter as tk  # 必须在 _修复tcl环境() 之后再导入import io
+import tkinter as tk  # 必须在 _修复tcl环境() 之后再导入
 import re
 import uuid
 import queue
@@ -84,9 +87,11 @@ os.makedirs(语音缓存目录, exist_ok=True)
 语音 = "zh-CN-XiaoxiaoNeural"
 
 # 从主程序同目录的 配置.ini 读取按键和 API 设置。
-from 配置读取 import 读取配置
+from 配置读取 import 初始化配置, 读取配置
 
 try:
+    if 初始化配置():
+        print("已生成 配置.ini。可直接朗读；在线翻译请填写微软翻译 API 密钥后重启。")
     配置 = 读取配置()
     按键映射 = 配置["按键映射"]
     已用扫描码 = set()
@@ -113,12 +118,12 @@ pygame.mixer.init()
 # 防止 BytesIO 被垃圾回收（pygame 播放期间必须保持引用）
 当前音频缓冲 = None
 
-# F14 是否处于按下状态（用于防止系统按键重复触发导致重复按下鼠标）
-_f14_按下中 = False
+# 拖选键是否处于按下状态（用于防止系统按键重复触发导致重复按下鼠标）
+_拖选_按下中 = False
 
-# F15 是否处于按下状态（用于防止系统按键重复触发导致重复执行）
-_f15_按下中 = False
-_f16_按下中 = False
+# 选中朗读键是否处于按下状态（用于防止系统按键重复触发导致重复执行）
+_选中_按下中 = False
+_截图_按下中 = False
 OCR请求队列 = queue.Queue()
 OCR忙碌 = threading.Event()
 OCR引擎 = None
@@ -409,6 +414,9 @@ async def 翻译并显示(文本):
         if 来自缓存:
             print("命中翻译缓存，跳过 API 调用")
         else:
+            if not KEY:
+                翻译队列.put("在线翻译未配置：请在 配置.ini 中填写微软翻译 API 密钥，然后重启。朗读仍可使用。")
+                return
             译文 = await 循环.run_in_executor(None, 调用翻译接口, 待翻译文本)
             翻译缓存[键] = 译文
             await 循环.run_in_executor(None, 保存翻译缓存)
@@ -422,6 +430,7 @@ async def 翻译并显示(文本):
         raise
     except Exception as e:
         print("翻译失败：", e)
+        翻译队列.put("翻译失败，请检查网络、API 配置和服务额度；详情见控制台。")
 
 
 # ============================================================
@@ -430,7 +439,7 @@ async def 翻译并显示(文本):
 
 
 # ============================================================
-# F16 截图 OCR：截图不写入磁盘，识别在工作线程中执行
+# 截图 OCR：截图不写入磁盘，识别在工作线程中执行
 # 依赖：python -m pip install Pillow rapidocr-onnxruntime
 # ============================================================
 
@@ -556,11 +565,11 @@ async def 处理OCR截图(截图):
         OCR忙碌.clear()
 
 
-def F16按下(event):
-    global _f16_按下中
-    if _f16_按下中:
+def 截图按下(event):
+    global _截图_按下中
+    if _截图_按下中:
         return
-    _f16_按下中 = True
+    _截图_按下中 = True
     if OCR忙碌.is_set():
         return
     OCR忙碌.set()
@@ -568,9 +577,9 @@ def F16按下(event):
     OCR请求队列.put(True)
 
 
-def F16抬起(event):
-    global _f16_按下中
-    _f16_按下中 = False
+def 截图抬起(event):
+    global _截图_按下中
+    _截图_按下中 = False
 
 
 def 翻译窗口线程():
@@ -799,15 +808,15 @@ async def 重新触发处理(截图=None):
 
 
 # ============================================================
-# F14 按下 / 抬起处理
+# 拖选键按下 / 抬起处理
 # ============================================================
 
-def F14按下(event):
-    global _f14_按下中
+def 拖选按下(event):
+    global _拖选_按下中
 
-    if _f14_按下中:
+    if _拖选_按下中:
         return
-    _f14_按下中 = True
+    _拖选_按下中 = True
 
     if pygame.mixer.music.get_busy():
         pygame.mixer.music.stop()
@@ -817,12 +826,12 @@ def F14按下(event):
     mouse.press(button="left")
 
 
-def F14抬起(event):
-    global _f14_按下中
+def 拖选抬起(event):
+    global _拖选_按下中
 
-    if not _f14_按下中:
+    if not _拖选_按下中:
         return
-    _f14_按下中 = False
+    _拖选_按下中 = False
 
     mouse.release(button="left")
 
@@ -831,18 +840,18 @@ def F14抬起(event):
 
 
 # ============================================================
-# F15 按下 / 抬起处理
-# 与 F14 不同：F15 不模拟鼠标点击/双击去"框选"文字，
-# 而是假定用户已经用鼠标/键盘选好了文字，按下 F15 后
+# 选中朗读键按下 / 抬起处理
+# 选中朗读不模拟鼠标点击/双击去"框选"文字，
+# 而是假定用户已经用鼠标/键盘选好了文字，按下功能键后
 # 直接走"获取选中文本 -> 朗读/翻译"这一整套后续流程。
 # ============================================================
 
-def F15按下(event):
-    global _f15_按下中
+def 选中按下(event):
+    global _选中_按下中
 
-    if _f15_按下中:
+    if _选中_按下中:
         return
-    _f15_按下中 = True
+    _选中_按下中 = True
 
     if pygame.mixer.music.get_busy():
         pygame.mixer.music.stop()
@@ -851,24 +860,24 @@ def F15按下(event):
         asyncio.run_coroutine_threadsafe(重新触发处理(), 主事件循环)
 
 
-def F15抬起(event):
-    global _f15_按下中
-    _f15_按下中 = False
+def 选中抬起(event):
+    global _选中_按下中
+    _选中_按下中 = False
 
 
 async def 主程序():
     global 主事件循环
     主事件循环 = asyncio.get_running_loop()
 
-    keyboard.on_press_key(按键映射["拖选朗读"], F14按下)
-    keyboard.on_release_key(按键映射["拖选朗读"], F14抬起)
+    keyboard.on_press_key(按键映射["拖选朗读"], 拖选按下)
+    keyboard.on_release_key(按键映射["拖选朗读"], 拖选抬起)
 
-    keyboard.on_press_key(按键映射["选中朗读"], F15按下)
-    keyboard.on_release_key(按键映射["选中朗读"], F15抬起)
+    keyboard.on_press_key(按键映射["选中朗读"], 选中按下)
+    keyboard.on_release_key(按键映射["选中朗读"], 选中抬起)
 
     print("=" * 40)
-    keyboard.on_press_key(按键映射["截图朗读"], F16按下)
-    keyboard.on_release_key(按键映射["截图朗读"], F16抬起)
+    keyboard.on_press_key(按键映射["截图朗读"], 截图按下)
+    keyboard.on_release_key(按键映射["截图朗读"], 截图抬起)
 
     print("晓晓朗读已启动")
     print()
@@ -896,5 +905,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n程序已退出")
     finally:
+        keyboard.unhook_all()
+        if _拖选_按下中:
+            mouse.release(button="left")
         pygame.mixer.music.stop()
         pygame.mixer.quit()

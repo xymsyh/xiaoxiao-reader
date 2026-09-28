@@ -1,10 +1,27 @@
 """读取主程序旁的配置，不依赖启动时的工作目录。"""
 import configparser
+import shutil
 from pathlib import Path
 from urllib.parse import urlsplit
 
 
 配置路径 = Path(__file__).resolve().with_name("配置.ini")
+
+
+def 初始化配置(路径=配置路径):
+    """仅首次启动复制无密钥示例，绝不覆盖已有配置。"""
+    路径 = Path(路径)
+    if 路径.exists():
+        return False
+    示例 = Path(__file__).resolve().with_name("配置示例.ini")
+    try:
+        with 示例.open("rb") as 来源, 路径.open("xb") as 目标:
+            shutil.copyfileobj(来源, 目标)
+    except FileExistsError:
+        return False
+    except OSError:
+        raise ValueError(f"无法创建配置文件：{路径}。请检查目录权限或手动复制 配置示例.ini。") from None
+    return True
 
 
 def 读取配置(路径=配置路径):

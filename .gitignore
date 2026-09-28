@@ -4,3 +4,10 @@
 *后删*
 配置.ini
 __pycache__/
+.venv/
+.env
+.env.*
+语音缓存/
+*.log
+dist/
+build/
