@@ -61,11 +61,4 @@ def 读取配置(路径=配置路径):
         地址有效 = False
     if not 地址有效:
         raise ValueError("[微软翻译API] 的“地址”必须是完整的 HTTP(S) 接口地址。")
-    try:
-        音标超时 = 配置.getfloat("剑桥音标", "超时秒", fallback=5)
-    except ValueError:
-        raise ValueError("[剑桥音标] 的“超时秒”必须是 1 到 15 之间的数字。") from None
-    if not 1 <= 音标超时 <= 15:
-        raise ValueError("[剑桥音标] 的“超时秒”必须是 1 到 15 之间的数字。")
-    结果["剑桥音标"] = {"超时秒": 音标超时}
     return 结果

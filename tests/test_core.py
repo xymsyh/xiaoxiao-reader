@@ -53,16 +53,6 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "找不到配置文件"):
             读取配置(self.path)
 
-    def test_cambridge_settings_are_optional_for_existing_installs(self):
-        self.write(TEMPLATE.split("[剑桥音标]")[0])
-        self.assertEqual(读取配置(self.path)["剑桥音标"]["超时秒"], 5)
-
-    def test_cambridge_timeout_validation(self):
-        for value in ("0", "16", "nan", "inf", "abc"):
-            self.write(TEMPLATE.replace("超时秒 = 5", "超时秒 = " + value))
-            with self.assertRaises(ValueError):
-                读取配置(self.path)
-
 
 class TextTests(unittest.TestCase):
     @classmethod
