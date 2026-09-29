@@ -77,7 +77,7 @@ class PrerenderReliabilityTests(unittest.TestCase):
         sleep = AsyncMock()
         environment = {
             "edge_tts": SimpleNamespace(Communicate=communicate),
-            "语音": "test-voice",
+            "选择朗读语音": lambda _text: "test-voice",
             "预渲染单项重试次数": 4,
             "asyncio": SimpleNamespace(sleep=sleep),
         }

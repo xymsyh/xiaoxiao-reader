@@ -93,6 +93,7 @@ os.makedirs(语音缓存目录, exist_ok=True)
 # ============================================================
 
 语音 = "zh-CN-XiaoxiaoNeural"
+纯英文语音 = "en-CA-ClaraNeural"
 
 # 从主程序同目录的 配置.ini 读取按键和 API 设置。
 from 配置读取 import 初始化配置, 读取配置
@@ -172,6 +173,16 @@ def 获取选中文本():
 
 def 含中文(文本):
     return bool(re.search(r"[\u4e00-\u9fff]", 文本))
+
+
+def 是纯英文(文本):
+    """文本至少含一个英文字母，且所有字母都是 ASCII 英文字母。"""
+    字母 = [字符 for 字符 in 文本 if 字符.isalpha()]
+    return bool(字母) and all("a" <= 字符.lower() <= "z" for 字符 in 字母)
+
+
+def 选择朗读语音(文本):
+    return 纯英文语音 if 是纯英文(文本) else 语音
 
 
 # ============================================================
@@ -360,9 +371,13 @@ def 保存语音缓存索引():
         print("保存语音缓存索引失败：", e)
 
 
-def 语音缓存键(文本):
+def 语音缓存键(文本, 使用语音=None):
     # 忽略大小写和首尾空白，"hello" / "Hello " 视为同一条缓存
-    return 文本.strip().lower()
+    键 = 文本.strip().lower()
+    # 默认语音沿用旧缓存键；纯英文语音带上语音名，避免误用以前由晓晓生成的英文音频。
+    if 使用语音 and 使用语音 != 语音:
+        return f"{使用语音}\n{键}"
+    return 键
 
 
 def 语音缓存文件路径(键):
@@ -747,7 +762,8 @@ async def 朗读文本(文本):
     print("\n正在朗读：", 文本)
 
     循环 = asyncio.get_event_loop()
-    键 = 语音缓存键(文本)
+    使用语音 = 选择朗读语音(文本)
+    键 = 语音缓存键(文本, 使用语音)
     缓存路径, 文件名 = 语音缓存文件路径(键)
 
     try:
@@ -766,7 +782,7 @@ async def 朗读文本(文本):
 
         if not 音频:
             音频字节 = bytearray()
-            communicate = edge_tts.Communicate(text=文本, voice=语音)
+            communicate = edge_tts.Communicate(text=文本, voice=使用语音)
 
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -982,11 +998,12 @@ def 提取预渲染文本(文本):
 
 async def 生成预渲染音频(文本, 最大尝试次数=预渲染单项重试次数):
     """合成音频；对限流、服务端错误和空音频执行指数退避重试。"""
+    使用语音 = 选择朗读语音(文本)
     最后错误 = "未收到音频数据"
     for 尝试序号 in range(1, 最大尝试次数 + 1):
         try:
             音频字节 = bytearray()
-            communicate = edge_tts.Communicate(text=文本, voice=语音)
+            communicate = edge_tts.Communicate(text=文本, voice=使用语音)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     音频字节.extend(chunk["data"])
@@ -1008,7 +1025,8 @@ async def 预渲染单项(类型, 文本, 最大尝试次数=预渲染单项重�
     try:
         成功 = True
         # 语音缓存
-        键 = 语音缓存键(文本)
+        使用语音 = 选择朗读语音(文本)
+        键 = 语音缓存键(文本, 使用语音)
         缓存路径, 文件名 = 语音缓存文件路径(键)
 
         缓存有效 = os.path.isfile(缓存路径) and os.path.getsize(缓存路径) > 0
