@@ -948,6 +948,7 @@ async def 主程序():
 
 预渲染日志文件 = r"D:\2026\22 晓晓朗读\01 ⭐️ 主程序.预渲染.md"
 预渲染单项重试次数 = 4
+预渲染首轮并发数 = 32
 预渲染补跑并发数 = 8
 
 
@@ -1076,16 +1077,12 @@ async def 预渲染单项(类型, 文本, 最大尝试次数=预渲染单项重�
 
 
 async def 批量执行预渲染(项目, 并发数=None, 单项重试次数=预渲染单项重试次数):
-    """并发数为 None 时全量并发；补跑时使用固定数量 worker。"""
+    """使用固定数量的 worker，避免一次建立过多网络连接。"""
     if not 项目:
         return []
 
     if 并发数 is None:
-        任务 = [
-            asyncio.create_task(预渲染单项(类型, 内容, 单项重试次数))
-            for 类型, 内容 in 项目
-        ]
-        return await asyncio.gather(*任务)
+        并发数 = 预渲染首轮并发数
 
     队列 = asyncio.Queue()
     for 序号, 项 in enumerate(项目):
@@ -1133,8 +1130,13 @@ async def 执行预渲染():
         ""
     ]
 
-    # 首轮保持全量并发和单次尝试，优先获得最快的整体速度。
-    单项结果 = await 批量执行预渲染(项目, 并发数=None, 单项重试次数=1)
+    # Windows SelectorEventLoop 最多只能处理约 512 个 socket。使用固定 worker 池，
+    # 防止项目较多时全量并发触发 "too many file descriptors in select()"。
+    单项结果 = await 批量执行预渲染(
+        项目,
+        并发数=预渲染首轮并发数,
+        单项重试次数=1,
+    )
 
     # 整轮结束后再补跑最终失败项；已成功写入的缓存不会重复请求。
     失败序号 = [序号 for 序号, (成功, _) in enumerate(单项结果) if not 成功]

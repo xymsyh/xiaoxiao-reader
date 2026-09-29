@@ -109,7 +109,7 @@ class PrerenderReliabilityTests(unittest.TestCase):
         self.assertEqual(len(results), len(items))
         self.assertLessEqual(maximum, 3)
 
-    def test_first_pass_can_run_all_items_concurrently(self):
+    def test_default_first_pass_concurrency_is_bounded(self):
         active = 0
         maximum = 0
 
@@ -123,6 +123,7 @@ class PrerenderReliabilityTests(unittest.TestCase):
 
         environment = {
             "asyncio": asyncio,
+            "预渲染首轮并发数": 4,
             "预渲染单项重试次数": 4,
             "预渲染单项": render,
         }
@@ -130,7 +131,7 @@ class PrerenderReliabilityTests(unittest.TestCase):
         items = [("单词", str(index)) for index in range(12)]
         results = asyncio.run(function(items, 并发数=None, 单项重试次数=1))
         self.assertEqual(len(results), len(items))
-        self.assertEqual(maximum, len(items))
+        self.assertLessEqual(maximum, 4)
 
 
 if __name__ == "__main__":
