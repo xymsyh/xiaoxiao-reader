@@ -1,0 +1,50 @@
+import ast
+import asyncio
+from pathlib import Path
+import unittest
+from unittest.mock import Mock
+
+
+SOURCE = Path(__file__).resolve().parents[1] / "01 ⭐️ 主程序.py"
+TREE = ast.parse(SOURCE.read_text(encoding="utf-8-sig"))
+
+
+def load_function(name, environment):
+    node = next(item for item in TREE.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and item.name == name)
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), "exec"), environment)
+    return environment[name]
+
+
+class PrerenderExitTests(unittest.TestCase):
+    def test_success_waits_five_seconds(self):
+        fake_time = Mock()
+        function = load_function("等待预渲染结束", {"time": fake_time})
+        function(True)
+        fake_time.sleep.assert_called_once_with(5)
+
+    def test_failure_waits_for_user_input(self):
+        fake_time = Mock()
+        fake_input = Mock(return_value="")
+        function = load_function("等待预渲染结束", {"time": fake_time, "input": fake_input})
+        function(False)
+        fake_input.assert_called_once()
+        fake_time.sleep.assert_not_called()
+
+    def test_failure_without_stdin_stays_alive_until_interrupted(self):
+        fake_time = Mock()
+        fake_time.sleep.side_effect = KeyboardInterrupt
+        fake_input = Mock(side_effect=EOFError)
+        function = load_function("等待预渲染结束", {"time": fake_time, "input": fake_input})
+        function(False)
+        fake_time.sleep.assert_called_once_with(3600)
+
+    def test_empty_clipboard_is_failure(self):
+        clipboard = Mock()
+        clipboard.paste.return_value = ""
+        function = load_function("执行预渲染", {"pyperclip": clipboard})
+        self.assertFalse(asyncio.run(function()))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -978,6 +978,7 @@ def 提取预渲染文本(文本):
 
 async def 预渲染单项(类型, 文本, 信号):
     try:
+        成功 = True
         # 语音缓存
         键 = 语音缓存键(文本)
         缓存路径, 文件名 = 语音缓存文件路径(键)
@@ -993,9 +994,14 @@ async def 预渲染单项(类型, 文本, 信号):
                 _写入语音缓存(
                     键, 文件名, 缓存路径, 文本, bytes(音频字节)
                 )
-                状态 = "生成语音缓存"
+                if os.path.isfile(缓存路径) and os.path.getsize(缓存路径) > 0:
+                    状态 = "生成语音缓存"
+                else:
+                    状态 = "语音缓存写入失败"
+                    成功 = False
             else:
                 状态 = "语音失败"
+                成功 = False
         else:
             状态 = "已有语音缓存"
 
@@ -1010,31 +1016,38 @@ async def 预渲染单项(类型, 文本, 信号):
                     翻译缓存[翻译键] = 译文
                     保存翻译缓存()
                     状态 += " + 翻译缓存"
-                except Exception:
-                    pass
+                except Exception as e:
+                    状态 += f" + 翻译失败：{e}"
+                    成功 = False
 
         输出 = f"[{类型}] {文本} -> {状态}"
         print(输出)
         信号.append(输出)
+        return 成功
 
     except Exception as e:
         输出 = f"[{类型}] {文本} -> 失败：{e}"
         print(输出)
         信号.append(输出)
+        return False
 
 
 async def 执行预渲染():
     try:
         文本 = pyperclip.paste().strip()
-    except Exception:
+    except Exception as e:
+        print("读取剪贴板失败：", e)
         文本 = ""
 
     if not 文本:
         print("剪贴板为空")
-        return
+        return False
 
     项目 = 提取预渲染文本(文本)
     print(f"提取 {len(项目)} 个预渲染项目")
+    if not 项目:
+        print("没有可预渲染的英语内容")
+        return False
 
     日志 = [
         "# 晓晓朗读预渲染日志",
@@ -1050,7 +1063,7 @@ async def 执行预渲染():
         asyncio.create_task(预渲染单项(类型, 内容, 信号))
         for 类型, 内容 in 项目
     ]
-    await asyncio.gather(*任务)
+    单项结果 = await asyncio.gather(*任务)
 
     日志.append("```\n" + "\n".join(信号) + "\n```")
 
@@ -1059,12 +1072,38 @@ async def 执行预渲染():
         with open(预渲染日志文件, "w", encoding="utf-8") as f:
             f.write("\n".join(日志))
         print("日志已保存：", 预渲染日志文件)
+        日志成功 = True
     except Exception as e:
         print("日志保存失败：", e)
+        日志成功 = False
+
+    成功 = all(单项结果) and 日志成功
+    print("预渲染全部成功" if 成功 else "预渲染存在失败项目")
+    return 成功
 
 
 def 启动预渲染模式():
-    asyncio.run(执行预渲染())
+    return asyncio.run(执行预渲染())
+
+
+def 等待预渲染结束(成功):
+    """成功时展示结果 5 秒；失败时保留控制台，便于查看错误。"""
+    if 成功:
+        print("预渲染成功，5 秒后自动退出……")
+        time.sleep(5)
+        return
+
+    print("预渲染失败，窗口将保持打开。")
+    try:
+        input("请检查上方错误；按 Enter 退出（或按 Ctrl+C）。")
+    except EOFError:
+        # 由无交互终端启动时没有可读 stdin，持续保留进程而不是立即关窗。
+        print("当前没有可用的标准输入；按 Ctrl+C 退出。")
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
 
 
 
@@ -1072,9 +1111,10 @@ if __name__ == "__main__":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     if len(sys.argv) > 1 and sys.argv[1] == "预渲染":
-        启动预渲染模式()
+        预渲染成功 = 启动预渲染模式()
         pygame.mixer.quit()
-        raise SystemExit(0)
+        等待预渲染结束(预渲染成功)
+        raise SystemExit(0 if 预渲染成功 else 1)
 
     # 悬浮翻译窗口用独立线程跑，不能和 asyncio 事件循环混在一起
     threading.Thread(target=翻译窗口线程, daemon=True).start()
