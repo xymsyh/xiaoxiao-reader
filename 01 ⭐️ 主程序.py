@@ -947,6 +947,152 @@ def 选中抬起(event):
     _选中_按下中 = False
 
 
+# ============================================================
+# 预渲染缓存模式（单次运行，不常驻）
+# 用法：
+#   python 主程序.py "预渲染"
+#
+# 功能：
+# 读取当前剪贴板/选中文本，按：
+# 1. 单个英语单词
+# 2. 英语句子片段
+# 3. 完整英语句子
+# 分级提取，并发生成 edge-tts 音频缓存。
+# ============================================================
+
+预渲染日志文件 = r"D:\2026\22 晓晓朗读\01 ⭐️ 主程序.预渲染.md"
+
+
+def 预渲染提取英文(文本):
+    """从选中文本提取需要提前渲染的英文单位。"""
+    文本 = 文本.strip()
+
+    单词 = []
+    for 项 in re.findall(r"\b[A-Za-z]+(?:'[A-Za-z]+)?\b", 文本):
+        if 项.lower() not in 单词:
+            单词.append(项)
+
+    # 英文短语/片段：按逗号、分号、换行、括号等切分
+    片段 = []
+    for 项 in re.split(r"[\n,;:()\[\]{}]+", 文本):
+        项 = 项.strip()
+        if len(re.findall(r"[A-Za-z]", 项)) >= 2 and " " in 项:
+            if 项 not in 片段:
+                片段.append(项)
+
+    # 完整英语句子
+    句子 = []
+    for 项 in re.findall(r"[^.!?]*[.!?]", 文本):
+        项 = 项.strip()
+        if len(re.findall(r"[A-Za-z]", 项)) >= 3:
+            if 项 not in 句子:
+                句子.append(项)
+
+    return [
+        ("单词", 单词),
+        ("句子片段", 片段),
+        ("完整句子", 句子),
+    ]
+
+
+async def 预渲染单条(文本):
+    """生成单条语音缓存，不播放。"""
+    键 = 语音缓存键(文本)
+    缓存路径, 文件名 = 语音缓存文件路径(键)
+
+    if os.path.isfile(缓存路径):
+        return "已存在", 文本
+
+    try:
+        音频字节 = bytearray()
+        communicate = edge_tts.Communicate(text=文本, voice=语音)
+
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                音频字节.extend(chunk["data"])
+
+        if not 音频字节:
+            return "失败(无音频)", 文本
+
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            _写入语音缓存,
+            键,
+            文件名,
+            缓存路径,
+            文本,
+            bytes(音频字节),
+        )
+
+        return "完成", 文本
+
+    except Exception as e:
+        return f"失败({e})", 文本
+
+
+async def 运行预渲染模式():
+    开始总计 = time.perf_counter()
+
+    try:
+        os.makedirs(os.path.dirname(预渲染日志文件), exist_ok=True)
+    except Exception:
+        pass
+
+    def 记录(内容):
+        print(内容, flush=True)
+        try:
+            with open(预渲染日志文件, "a", encoding="utf-8") as f:
+                f.write(内容 + "\n")
+        except Exception:
+            pass
+
+    try:
+        import pyperclip
+        文本 = pyperclip.paste().strip()
+    except Exception:
+        文本 = ""
+
+    if not 文本:
+        记录("# 预渲染失败：剪贴板没有文本")
+        return
+
+    记录("# 晓晓朗读预渲染缓存")
+    记录("")
+    记录(f"时间：{datetime.now():%Y-%m-%d %H:%M:%S}")
+    记录("")
+    记录("原始文本：")
+    记录("```")
+    记录(文本)
+    记录("```")
+    记录("")
+
+    总数量 = 0
+
+    for 类型, 列表 in 预渲染提取英文(文本):
+        if not 列表:
+            continue
+
+        记录(f"## {类型} ({len(列表)})")
+
+        # 同一等级内部最大化并发
+        结果 = await asyncio.gather(
+            *(预渲染单条(x) for x in 列表),
+            return_exceptions=True
+        )
+
+        for 状态, 项 in 结果:
+            if isinstance(状态, Exception):
+                记录(f"- 失败: {项}: {状态}")
+            else:
+                记录(f"- [{状态}] {项}")
+            总数量 += 1
+
+        记录("")
+
+    记录(f"完成，共处理 {总数量} 条")
+    记录(f"总耗时: {(time.perf_counter()-开始总计):.2f}s")
+
+
 async def 主程序():
     global 主事件循环
     主事件循环 = asyncio.get_running_loop()
@@ -978,6 +1124,11 @@ async def 主程序():
 
 if __name__ == "__main__":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    # 预渲染模式：单次执行，生成缓存后立即退出，不启动常驻监听。
+    if len(sys.argv) > 1 and sys.argv[1] == "预渲染":
+        asyncio.run(运行预渲染模式())
+        raise SystemExit(0)
 
     # 悬浮翻译窗口用独立线程跑，不能和 asyncio 事件循环混在一起
     threading.Thread(target=翻译窗口线程, daemon=True).start()
