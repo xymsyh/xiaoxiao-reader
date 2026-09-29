@@ -92,7 +92,7 @@ class PrerenderReliabilityTests(unittest.TestCase):
         active = 0
         maximum = 0
 
-        async def render(kind, text):
+        async def render(kind, text, _attempts):
             nonlocal active, maximum
             active += 1
             maximum = max(maximum, active)
@@ -102,14 +102,37 @@ class PrerenderReliabilityTests(unittest.TestCase):
 
         environment = {
             "asyncio": asyncio,
-            "预渲染并发数": 3,
+            "预渲染单项重试次数": 4,
             "预渲染单项": render,
         }
         function = load_function("批量执行预渲染", environment)
         items = [("单词", str(index)) for index in range(12)]
-        results = asyncio.run(function(items))
+        results = asyncio.run(function(items, 并发数=3))
         self.assertEqual(len(results), len(items))
         self.assertLessEqual(maximum, 3)
+
+    def test_first_pass_can_run_all_items_concurrently(self):
+        active = 0
+        maximum = 0
+
+        async def render(kind, text, _attempts):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0)
+            active -= 1
+            return True, f"[{kind}] {text}"
+
+        environment = {
+            "asyncio": asyncio,
+            "预渲染单项重试次数": 4,
+            "预渲染单项": render,
+        }
+        function = load_function("批量执行预渲染", environment)
+        items = [("单词", str(index)) for index in range(12)]
+        results = asyncio.run(function(items, 并发数=None, 单项重试次数=1))
+        self.assertEqual(len(results), len(items))
+        self.assertEqual(maximum, len(items))
 
 
 if __name__ == "__main__":
