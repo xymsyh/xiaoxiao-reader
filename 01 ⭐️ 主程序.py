@@ -892,8 +892,157 @@ async def 主程序():
         await asyncio.sleep(3600)
 
 
+# ============================================================
+# 预渲染缓存模式（单次启动，不常驻）
+# 用法：python 主程序.py "预渲染"
+# ============================================================
+
+预渲染日志文件 = r"D:\2026\22 晓晓朗读\01 ⭐️ 主程序.预渲染.md"
+
+
+def 提取预渲染文本(文本):
+    """
+    按优先级提取：
+    1. 单个英语单词
+    2. 中文之间连续英语词组（禁止跨行）
+    3. 连续英语词组（禁止跨行）
+    4. 每行句子（禁止跨行）
+    """
+    结果 = []
+    已加入 = set()
+
+    def 添加(项目, 类型):
+        项目 = 项目.strip()
+        if not 项目 or 项目 in 已加入:
+            return
+        已加入.add(项目)
+        结果.append((类型, 项目))
+
+    行列表 = 文本.splitlines()
+
+    # 1. 单个英语单词
+    for 行 in 行列表:
+        for 单词 in re.findall(r"\b[A-Za-z]+(?:'[A-Za-z]+)?\b", 行):
+            添加(单词, "单词")
+
+    # 2. 中文之间的连续英语词组（同一行）
+    for 行 in 行列表:
+        for 匹配 in re.findall(r"[\u4e00-\u9fff]\s*([A-Za-z][A-Za-z\s'-]*[A-Za-z])\s*[\u4e00-\u9fff]", 行):
+            添加(匹配, "中文夹英文词组")
+
+    # 3. 连续英语词组（禁止跨行）
+    for 行 in 行列表:
+        for 匹配 in re.findall(r"\b[A-Za-z]+(?:\s+[A-Za-z]+)+\b", 行):
+            添加(匹配, "英文词组")
+
+    # 4. 每行句子（禁止跨行）
+    for 行 in 行列表:
+        行 = 行.strip()
+        if re.search(r"[A-Za-z]", 行) and len(行.split()) >= 2:
+            添加(行, "句子")
+
+    return 结果
+
+
+async def 预渲染单项(类型, 文本, 信号):
+    try:
+        # 语音缓存
+        键 = 语音缓存键(文本)
+        缓存路径, 文件名 = 语音缓存文件路径(键)
+
+        if not os.path.isfile(缓存路径):
+            音频字节 = bytearray()
+            communicate = edge_tts.Communicate(text=文本, voice=语音)
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    音频字节.extend(chunk["data"])
+
+            if 音频字节:
+                _写入语音缓存(
+                    键, 文件名, 缓存路径, 文本, bytes(音频字节)
+                )
+                状态 = "生成语音缓存"
+            else:
+                状态 = "语音失败"
+        else:
+            状态 = "已有语音缓存"
+
+        # 翻译缓存（仅英语内容）
+        if not 含中文(文本):
+            翻译键 = 缓存键(预处理翻译文本(文本))
+            if 翻译键 not in 翻译缓存 and KEY:
+                try:
+                    译文 = await asyncio.get_running_loop().run_in_executor(
+                        None, 调用翻译接口, 预处理翻译文本(文本)
+                    )
+                    翻译缓存[翻译键] = 译文
+                    保存翻译缓存()
+                    状态 += " + 翻译缓存"
+                except Exception:
+                    pass
+
+        输出 = f"[{类型}] {文本} -> {状态}"
+        print(输出)
+        信号.append(输出)
+
+    except Exception as e:
+        输出 = f"[{类型}] {文本} -> 失败：{e}"
+        print(输出)
+        信号.append(输出)
+
+
+async def 执行预渲染():
+    try:
+        文本 = pyperclip.paste().strip()
+    except Exception:
+        文本 = ""
+
+    if not 文本:
+        print("剪贴板为空")
+        return
+
+    项目 = 提取预渲染文本(文本)
+    print(f"提取 {len(项目)} 个预渲染项目")
+
+    日志 = [
+        "# 晓晓朗读预渲染日志",
+        "",
+        f"- 时间：{datetime.now():%Y-%m-%d %H:%M:%S}",
+        f"- 数量：{len(项目)}",
+        ""
+    ]
+
+    # 优先级已经在列表中体现，但执行时全部并发，最大化速度
+    信号 = []
+    任务 = [
+        asyncio.create_task(预渲染单项(类型, 内容, 信号))
+        for 类型, 内容 in 项目
+    ]
+    await asyncio.gather(*任务)
+
+    日志.extend("```\n" + "\n".join(信号) + "\n```")
+
+    try:
+        os.makedirs(os.path.dirname(预渲染日志文件), exist_ok=True)
+        with open(预渲染日志文件, "w", encoding="utf-8") as f:
+            f.write("\n".join(日志))
+        print("日志已保存：", 预渲染日志文件)
+    except Exception as e:
+        print("日志保存失败：", e)
+
+
+def 启动预渲染模式():
+    asyncio.run(执行预渲染())
+
+
+
 if __name__ == "__main__":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    if len(sys.argv) > 1 and sys.argv[1] == "预渲染":
+        启动预渲染模式()
+        pygame.mixer.quit()
+        raise SystemExit(0)
 
     # 悬浮翻译窗口用独立线程跑，不能和 asyncio 事件循环混在一起
     threading.Thread(target=翻译窗口线程, daemon=True).start()
