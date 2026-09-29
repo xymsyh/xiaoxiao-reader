@@ -68,6 +68,20 @@ class PrerenderReliabilityTests(unittest.TestCase):
         self.assertEqual(full_lines, [("整行文本", "纯中文一行"), ("整行文本", "12345")])
         self.assertEqual(result[-2:], full_lines)
 
+    def test_symbol_only_lines_are_skipped(self):
+        function = load_function(
+            "提取预渲染文本",
+            {"re": re, "语音缓存键": lambda text: text.strip().lower()},
+        )
+
+        result = function("{\n}\n!!!\n版本 2.0")
+        rendered_text = [text for _kind, text in result]
+
+        self.assertNotIn("{", rendered_text)
+        self.assertNotIn("}", rendered_text)
+        self.assertNotIn("!!!", rendered_text)
+        self.assertIn("版本 2.0", rendered_text)
+
     def test_tts_retries_transient_failures(self):
         calls = {"count": 0}
 
