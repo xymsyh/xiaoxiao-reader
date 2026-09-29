@@ -1,8 +1,10 @@
 import ast
 import asyncio
 from pathlib import Path
+import re
+from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "01 ⭐️ 主程序.py"
@@ -44,6 +46,70 @@ class PrerenderExitTests(unittest.TestCase):
         clipboard.paste.return_value = ""
         function = load_function("执行预渲染", {"pyperclip": clipboard})
         self.assertFalse(asyncio.run(function()))
+
+
+class PrerenderReliabilityTests(unittest.TestCase):
+    def test_extraction_deduplicates_case_insensitive_cache_keys(self):
+        function = load_function(
+            "提取预渲染文本",
+            {"re": re, "语音缓存键": lambda text: text.strip().lower()},
+        )
+        result = function("Hello hello HELLO")
+        words = [text for kind, text in result if kind == "单词"]
+        self.assertEqual(words, ["Hello"])
+
+    def test_tts_retries_transient_failures(self):
+        calls = {"count": 0}
+
+        class FakeCommunication:
+            def __init__(self, attempt):
+                self.attempt = attempt
+
+            async def stream(self):
+                if self.attempt < 3:
+                    raise RuntimeError("429 Invalid response status")
+                yield {"type": "audio", "data": b"audio"}
+
+        def communicate(**_kwargs):
+            calls["count"] += 1
+            return FakeCommunication(calls["count"])
+
+        sleep = AsyncMock()
+        environment = {
+            "edge_tts": SimpleNamespace(Communicate=communicate),
+            "语音": "test-voice",
+            "预渲染单项重试次数": 4,
+            "asyncio": SimpleNamespace(sleep=sleep),
+        }
+        function = load_function("生成预渲染音频", environment)
+        audio, attempts, error = asyncio.run(function("hello"))
+        self.assertEqual(audio, b"audio")
+        self.assertEqual(attempts, 3)
+        self.assertIsNone(error)
+        self.assertEqual([call.args[0] for call in sleep.await_args_list], [1, 2])
+
+    def test_worker_pool_caps_concurrency(self):
+        active = 0
+        maximum = 0
+
+        async def render(kind, text):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0)
+            active -= 1
+            return True, f"[{kind}] {text}"
+
+        environment = {
+            "asyncio": asyncio,
+            "预渲染并发数": 3,
+            "预渲染单项": render,
+        }
+        function = load_function("批量执行预渲染", environment)
+        items = [("单词", str(index)) for index in range(12)]
+        results = asyncio.run(function(items))
+        self.assertEqual(len(results), len(items))
+        self.assertLessEqual(maximum, 3)
 
 
 if __name__ == "__main__":

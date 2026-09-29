@@ -930,6 +930,8 @@ async def 主程序():
 # ============================================================
 
 预渲染日志文件 = r"D:\2026\22 晓晓朗读\01 ⭐️ 主程序.预渲染.md"
+预渲染并发数 = 3
+预渲染单项重试次数 = 4
 
 
 def 提取预渲染文本(文本):
@@ -945,9 +947,11 @@ def 提取预渲染文本(文本):
 
     def 添加(项目, 类型):
         项目 = 项目.strip()
-        if not 项目 or 项目 in 已加入:
+        # 语音缓存键忽略大小写；按同一规则去重，避免多个任务同时写同一个 MP3。
+        去重键 = 语音缓存键(项目) if 项目 else ""
+        if not 项目 or 去重键 in 已加入:
             return
-        已加入.add(项目)
+        已加入.add(去重键)
         结果.append((类型, 项目))
 
     行列表 = 文本.splitlines()
@@ -976,31 +980,53 @@ def 提取预渲染文本(文本):
     return 结果
 
 
-async def 预渲染单项(类型, 文本, 信号):
+async def 生成预渲染音频(文本):
+    """合成音频；对限流、服务端错误和空音频执行指数退避重试。"""
+    最后错误 = "未收到音频数据"
+    for 尝试序号 in range(1, 预渲染单项重试次数 + 1):
+        try:
+            音频字节 = bytearray()
+            communicate = edge_tts.Communicate(text=文本, voice=语音)
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    音频字节.extend(chunk["data"])
+            if 音频字节:
+                return bytes(音频字节), 尝试序号, None
+            最后错误 = "No audio was received"
+        except Exception as e:
+            最后错误 = str(e)
+
+        if 尝试序号 < 预渲染单项重试次数:
+            等待秒数 = min(2 ** (尝试序号 - 1), 8)
+            print(f"TTS 暂时失败，第 {尝试序号} 次重试：{文本[:40]}；{等待秒数} 秒后重试")
+            await asyncio.sleep(等待秒数)
+
+    return None, 预渲染单项重试次数, 最后错误
+
+
+async def 预渲染单项(类型, 文本):
     try:
         成功 = True
         # 语音缓存
         键 = 语音缓存键(文本)
         缓存路径, 文件名 = 语音缓存文件路径(键)
 
-        if not os.path.isfile(缓存路径):
-            音频字节 = bytearray()
-            communicate = edge_tts.Communicate(text=文本, voice=语音)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    音频字节.extend(chunk["data"])
-
-            if 音频字节:
+        缓存有效 = os.path.isfile(缓存路径) and os.path.getsize(缓存路径) > 0
+        if not 缓存有效:
+            音频字节, 尝试次数, 错误 = await 生成预渲染音频(文本)
+            if 音频字节 is not None:
                 _写入语音缓存(
-                    键, 文件名, 缓存路径, 文本, bytes(音频字节)
+                    键, 文件名, 缓存路径, 文本, 音频字节
                 )
                 if os.path.isfile(缓存路径) and os.path.getsize(缓存路径) > 0:
                     状态 = "生成语音缓存"
+                    if 尝试次数 > 1:
+                        状态 += f"（第 {尝试次数} 次成功）"
                 else:
                     状态 = "语音缓存写入失败"
                     成功 = False
             else:
-                状态 = "语音失败"
+                状态 = f"语音失败（已尝试 {尝试次数} 次）：{错误}"
                 成功 = False
         else:
             状态 = "已有语音缓存"
@@ -1022,14 +1048,37 @@ async def 预渲染单项(类型, 文本, 信号):
 
         输出 = f"[{类型}] {文本} -> {状态}"
         print(输出)
-        信号.append(输出)
-        return 成功
+        return 成功, 输出
 
     except Exception as e:
         输出 = f"[{类型}] {文本} -> 失败：{e}"
         print(输出)
-        信号.append(输出)
-        return False
+        return False, 输出
+
+
+async def 批量执行预渲染(项目, 并发数=预渲染并发数):
+    """使用固定数量 worker，避免为大量项目同时建立 TTS WebSocket。"""
+    if not 项目:
+        return []
+    队列 = asyncio.Queue()
+    for 序号, 项 in enumerate(项目):
+        队列.put_nowait((序号, 项))
+    结果 = [None] * len(项目)
+
+    async def worker():
+        while True:
+            try:
+                序号, (类型, 内容) = 队列.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                结果[序号] = await 预渲染单项(类型, 内容)
+            finally:
+                队列.task_done()
+
+    workers = [asyncio.create_task(worker()) for _ in range(min(并发数, len(项目)))]
+    await asyncio.gather(*workers)
+    return 结果
 
 
 async def 执行预渲染():
@@ -1057,13 +1106,21 @@ async def 执行预渲染():
         ""
     ]
 
-    # 优先级已经在列表中体现，但执行时全部并发，最大化速度
-    信号 = []
-    任务 = [
-        asyncio.create_task(预渲染单项(类型, 内容, 信号))
-        for 类型, 内容 in 项目
-    ]
-    单项结果 = await asyncio.gather(*任务)
+    # 固定 worker 数限制 TTS WebSocket 并发，避免触发服务端 429。
+    单项结果 = await 批量执行预渲染(项目)
+
+    # 整轮结束后再补跑最终失败项；已成功写入的缓存不会重复请求。
+    失败序号 = [序号 for 序号, (成功, _) in enumerate(单项结果) if not 成功]
+    if 失败序号:
+        print(f"首轮仍有 {len(失败序号)} 项失败，等待 5 秒后低并发补跑……")
+        await asyncio.sleep(5)
+        失败项目 = [项目[序号] for 序号 in 失败序号]
+        补跑结果 = await 批量执行预渲染(失败项目, 并发数=1)
+        for 原序号, 新结果 in zip(失败序号, 补跑结果):
+            单项结果[原序号] = 新结果
+
+    信号 = [输出 for _, 输出 in 单项结果]
+    成功状态 = [成功 for 成功, _ in 单项结果]
 
     日志.append("```\n" + "\n".join(信号) + "\n```")
 
@@ -1077,7 +1134,7 @@ async def 执行预渲染():
         print("日志保存失败：", e)
         日志成功 = False
 
-    成功 = all(单项结果) and 日志成功
+    成功 = all(成功状态) and 日志成功
     print("预渲染全部成功" if 成功 else "预渲染存在失败项目")
     return 成功
 
