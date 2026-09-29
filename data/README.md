@@ -1,13 +1,17 @@
-# 美式 IPA 词典来源
+# 本地英汉词典来源
 
-`en_US.txt` 是 [open-dict-data/ipa-dict](https://github.com/open-dict-data/ipa-dict) 的 English (General American) 词表，原样随项目分发，用于离线查询，不是从拼写推测音标。
+`dictionary.sqlite3` 是供程序运行时只读查询的本地词典，由
+[`tools/构建本地词典.py`](../tools/构建本地词典.py) 从 ECDICT 固定版本生成。
 
-- 上游版本：`43c3570eb3553bdd19fccd2bd0091534889af023`
-- 原始文件：[data/en_US.txt](https://github.com/open-dict-data/ipa-dict/blob/43c3570eb3553bdd19fccd2bd0091534889af023/data/en_US.txt)
-- SHA-256：`2af6f154a5c363275f052d1f85acedef38ed185ca9745aa4314be77f6b70de67`
-- 文件约 3.2 MB，125,927 行；一词可能包含多个读音，不能按词性自动消歧。
-- 保留上游 IPA 符号（例如 `ɹ`、`ɫ`）和重音标记，因此可能与其他学习词典的转写习惯不同。
+- 上游项目：https://github.com/skywind3000/ECDICT
+- 固定提交：`bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b`
+- 上游 CSV SHA-256：`1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf`
+- 收录范围：有中文释义、且词头不含空格的英文单词、连字符词和撇号词
+- 当前词条数：401,258
+- 使用字段：词头、ECDICT 音标、中英文释义、词性、词形、标签及词频
+- 查询方式：本地 SQLite 精确索引；程序运行时不下载、解析或联网更新词典
 
-上游说明美式数据基于 [lingz/cmudict-ipa](https://github.com/lingz/cmudict-ipa)，并使用 [syllabify](https://github.com/kylebgorman/syllabify) 添加重音。更早的数据来源为 CMU Pronouncing Dictionary。
+音标直接显示 ECDICT 的 `phonetic` 字段，不进行 IPA 猜测、口音转换或人工覆盖。
+ECDICT 说明该字段以英语英标为主，不保证每个词都具备音标。
 
-本目录附带 ipa-dict、cmudict-ipa 和 CMUdict 的许可文件。查询结果反映该版本词表，可能存在遗漏或错误；未收录时不尝试自动生成读音。
+ECDICT 项目采用 MIT License，许可证副本见 `ECDICT-LICENSE.txt`。
