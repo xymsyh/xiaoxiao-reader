@@ -1020,7 +1020,7 @@ async def 执行预渲染():
     ]
     await asyncio.gather(*任务)
 
-    日志.extend("```\n" + "\n".join(信号) + "\n```")
+    日志.append("```\n" + "\n".join(信号) + "\n```")
 
     try:
         os.makedirs(os.path.dirname(预渲染日志文件), exist_ok=True)
