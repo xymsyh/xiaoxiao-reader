@@ -56,6 +56,18 @@ class PrerenderReliabilityTests(unittest.TestCase):
         words = [text for kind, text in result if kind == "单词"]
         self.assertEqual(words, ["Hello"])
 
+    def test_full_lines_are_appended_last(self):
+        function = load_function(
+            "提取预渲染文本",
+            {"re": re, "语音缓存键": lambda text: text.strip().lower()},
+        )
+
+        result = function("Hello world\n纯中文一行\n12345\n\nSingle")
+        full_lines = [(kind, text) for kind, text in result if kind == "整行文本"]
+
+        self.assertEqual(full_lines, [("整行文本", "纯中文一行"), ("整行文本", "12345")])
+        self.assertEqual(result[-2:], full_lines)
+
     def test_tts_retries_transient_failures(self):
         calls = {"count": 0}
 
