@@ -54,6 +54,7 @@ import asyncio
 import threading
 import time
 import hashlib
+import traceback
 from datetime import datetime
 
 # 清除代理环境变量
@@ -1180,17 +1181,12 @@ def 等待预渲染结束(成功):
         time.sleep(5)
         return
 
-    print("预渲染失败，窗口将保持打开。")
+    print("预渲染失败，窗口将保持打开；按 Ctrl+C 退出。")
     try:
-        input("请检查上方错误；按 Enter 退出（或按 Ctrl+C）。")
-    except EOFError:
-        # 由无交互终端启动时没有可读 stdin，持续保留进程而不是立即关窗。
-        print("当前没有可用的标准输入；按 Ctrl+C 退出。")
-        try:
-            while True:
-                time.sleep(3600)
-        except KeyboardInterrupt:
-            pass
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print("\n已退出预渲染窗口。")
 
 
 
@@ -1198,8 +1194,15 @@ if __name__ == "__main__":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     if len(sys.argv) > 1 and sys.argv[1] == "预渲染":
-        预渲染成功 = 启动预渲染模式()
-        pygame.mixer.quit()
+        try:
+            预渲染成功 = 启动预渲染模式()
+        except Exception as e:
+            # 保证未预料的错误也会进入下方的失败等待，不让命令行窗口直接关闭。
+            预渲染成功 = False
+            print("\n预渲染发生未处理错误：", e)
+            traceback.print_exc()
+        finally:
+            pygame.mixer.quit()
         等待预渲染结束(预渲染成功)
         raise SystemExit(0 if 预渲染成功 else 1)
 

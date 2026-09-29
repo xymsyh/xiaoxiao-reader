@@ -25,19 +25,17 @@ class PrerenderExitTests(unittest.TestCase):
         function(True)
         fake_time.sleep.assert_called_once_with(5)
 
-    def test_failure_waits_for_user_input(self):
-        fake_time = Mock()
-        fake_input = Mock(return_value="")
-        function = load_function("等待预渲染结束", {"time": fake_time, "input": fake_input})
-        function(False)
-        fake_input.assert_called_once()
-        fake_time.sleep.assert_not_called()
-
-    def test_failure_without_stdin_stays_alive_until_interrupted(self):
+    def test_failure_keeps_window_open_until_interrupted(self):
         fake_time = Mock()
         fake_time.sleep.side_effect = KeyboardInterrupt
-        fake_input = Mock(side_effect=EOFError)
-        function = load_function("等待预渲染结束", {"time": fake_time, "input": fake_input})
+        function = load_function("等待预渲染结束", {"time": fake_time})
+        function(False)
+        fake_time.sleep.assert_called_once_with(3600)
+
+    def test_failure_does_not_depend_on_stdin(self):
+        fake_time = Mock()
+        fake_time.sleep.side_effect = KeyboardInterrupt
+        function = load_function("等待预渲染结束", {"time": fake_time})
         function(False)
         fake_time.sleep.assert_called_once_with(3600)
 
