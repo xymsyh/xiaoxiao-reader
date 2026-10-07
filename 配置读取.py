@@ -67,7 +67,6 @@ def 读取配置(路径=配置路径):
     except ValueError:
         raise ValueError("[音频发送] 的“启用”必须填写 true 或 false。") from None
     音频发送地址 = 配置.get("音频发送", "地址", fallback="").strip()
-    音频发送文件名 = 配置.get("音频发送", "文件名", fallback="notice.mp3").strip()
     if 音频发送启用:
         try:
             地址 = urlsplit(音频发送地址)
@@ -76,11 +75,8 @@ def 读取配置(路径=配置路径):
             地址有效 = False
         if not 地址有效:
             raise ValueError("启用音频发送时，[音频发送] 的“地址”必须是完整的 HTTP(S) 地址。")
-        if not 音频发送文件名 or "\r" in 音频发送文件名 or "\n" in 音频发送文件名:
-            raise ValueError("[音频发送] 的“文件名”不能为空或包含换行。")
     结果["音频发送"] = {
         "启用": 音频发送启用,
         "地址": 音频发送地址,
-        "文件名": 音频发送文件名,
     }
     return 结果

@@ -39,7 +39,6 @@ class AudioForwardingTests(unittest.TestCase):
         environment = {
             "requests": SimpleNamespace(Session=lambda: session),
             "音频发送地址": "https://audio.vui.ink/api/play",
-            "音频发送文件名": "notice.mp3",
         }
         function = load_function("发送朗读音频", environment)
 

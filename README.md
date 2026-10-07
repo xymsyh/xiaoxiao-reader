@@ -168,10 +168,9 @@ cet6 · toefl · ielts · gre
 [音频发送]
 启用 = true
 地址 = https://audio.vui.ink/api/play
-文件名 = notice.mp3
 ```
 
-程序会在后台发送与本地播放相同的 MP3，请求头为 `Content-Type: audio/mpeg` 和配置的 `X-Filename`。缓存命中的朗读也会发送；预渲染只生成缓存，不会发送。发送失败只会写入控制台，不会中断本地播放。关闭时将“启用”改为 `false`，修改配置后需要重启程序。
+程序会在后台发送与本地播放相同的 MP3，请求头为 `Content-Type: audio/mpeg`；接口需要的 `X-Filename` 由程序内部固定提供，无需配置。缓存命中的朗读也会发送；预渲染只生成缓存，不会发送。发送失败只会写入控制台，不会中断本地播放。关闭时将“启用”改为 `false`，修改配置后需要重启程序。
 
 API 的申请、认证和服务额度以 [微软官方快速入门](https://learn.microsoft.com/en-us/azure/cognitive-services/translator/quickstart-translator) 与 [接口文档](https://learn.microsoft.com/en-us/rest/api/translator/translator/translate?view=rest-translator-v3.0) 为准。翻译服务可能产生费用，请自行查看所用资源的计费与额度。
 

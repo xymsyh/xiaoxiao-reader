@@ -122,7 +122,6 @@ REGION = 配置["微软翻译API"]["区域"]
 ENDPOINT = 配置["微软翻译API"]["地址"]
 音频发送启用 = 配置["音频发送"]["启用"]
 音频发送地址 = 配置["音频发送"]["地址"]
-音频发送文件名 = 配置["音频发送"]["文件名"]
 
 # 采样率与 edge-tts 输出一致（24kHz 单声道），缓冲区调小，减少起播延迟
 pygame.mixer.pre_init(frequency=24000, size=-16, channels=1, buffer=512)
@@ -770,7 +769,7 @@ def 发送朗读音频(音频字节):
                 音频发送地址,
                 headers={
                     "Content-Type": "audio/mpeg",
-                    "X-Filename": 音频发送文件名,
+                    "X-Filename": "notice.mp3",
                 },
                 data=音频字节,
                 timeout=(5, 30),
