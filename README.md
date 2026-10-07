@@ -160,6 +160,19 @@ cet6 · toefl · ielts · gre
 - **地址**：应为与当前微软翻译协议兼容的完整接口地址，包含 `/translate`。不能直接替换为 OpenAI 或其他厂商的聊天 API。
 - 目标语言目前为简体中文 `zh-Hans`，原文语言交给翻译服务识别。
 
+## 音频发送
+
+需要将实际朗读的声音同时发送到另一台设备或音频服务时，可在 `配置.ini` 中开启：
+
+```ini
+[音频发送]
+启用 = true
+地址 = https://audio.vui.ink/api/play
+文件名 = notice.mp3
+```
+
+程序会在后台发送与本地播放相同的 MP3，请求头为 `Content-Type: audio/mpeg` 和配置的 `X-Filename`。缓存命中的朗读也会发送；预渲染只生成缓存，不会发送。发送失败只会写入控制台，不会中断本地播放。关闭时将“启用”改为 `false`，修改配置后需要重启程序。
+
 API 的申请、认证和服务额度以 [微软官方快速入门](https://learn.microsoft.com/en-us/azure/cognitive-services/translator/quickstart-translator) 与 [接口文档](https://learn.microsoft.com/en-us/rest/api/translator/translator/translate?view=rest-translator-v3.0) 为准。翻译服务可能产生费用，请自行查看所用资源的计费与额度。
 
 本机 `配置.ini` 已被 Git 忽略，仓库只提供不含密钥的 `配置示例.ini`。不要在截图、Issue、提交或公开压缩包中附带真实密钥。
@@ -171,6 +184,7 @@ API 的申请、认证和服务额度以 [微软官方快速入门](https://lear
 | 选中文字 | 通过模拟 Ctrl+C 读取；会改变剪贴板，成功时保留选中文字，不恢复原内容 |
 | OCR 截图 | 截图保存在内存，使用 RapidOCR 在本机识别，不将图片上传给 OCR 服务 |
 | 朗读文本 | 未命中语音缓存时，发送给 `edge-tts` 使用的在线语音服务 |
+| 朗读音频 | `[音频发送]` 启用时，将最终播放的 MP3 发送到配置的网址 |
 | 单个英文单词 | 优先查询本地 ECDICT；命中时不发送给翻译接口，本地未收录时才可能在线回退 |
 | 其他待翻译文本 | 符合翻译条件且未命中缓存时，发送给配置的微软翻译接口 |
 | OCR 识别文字 | 复制到剪贴板后进入相同的朗读/翻译流程，因此文本仍可能发送到在线服务 |

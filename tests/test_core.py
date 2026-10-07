@@ -31,6 +31,21 @@ class ConfigTests(unittest.TestCase):
         result = 读取配置(self.path)
         self.assertEqual(list(result["按键映射"].values()), ["f8", "f9", "f10"])
         self.assertEqual(result["微软翻译API"]["密钥"], "")
+        self.assertFalse(result["音频发送"]["启用"])
+
+    def test_audio_forwarding_configuration(self):
+        self.write(TEMPLATE.replace("启用 = false", "启用 = true"))
+        result = 读取配置(self.path)
+        self.assertTrue(result["音频发送"]["启用"])
+        self.assertEqual(result["音频发送"]["地址"], "https://audio.vui.ink/api/play")
+        self.assertEqual(result["音频发送"]["文件名"], "notice.mp3")
+
+    def test_legacy_configuration_defaults_audio_forwarding_to_disabled(self):
+        self.write(TEMPLATE.split("\n[音频发送]", 1)[0])
+        result = 读取配置(self.path)
+        self.assertFalse(result["音频发送"]["启用"])
+        self.assertEqual(result["音频发送"]["地址"], "")
+        self.assertEqual(result["音频发送"]["文件名"], "notice.mp3")
 
     def test_literal_secret_characters(self):
         self.write(TEMPLATE.replace("密钥 =", "密钥 = test%value#not-a-real-secret"))
@@ -42,6 +57,10 @@ class ConfigTests(unittest.TestCase):
             TEMPLATE.replace("f14", "ctrl+f8"),
             TEMPLATE.replace("区域 = eastasia", "区域 ="),
             TEMPLATE.replace("https://api.cognitive.microsofttranslator.com/translate", "invalid"),
+            TEMPLATE.replace("启用 = false", "启用 = maybe"),
+            TEMPLATE.replace("启用 = false", "启用 = true").replace(
+                "https://audio.vui.ink/api/play", "invalid"
+            ),
             "[broken",
         ):
             with self.subTest(content=content):

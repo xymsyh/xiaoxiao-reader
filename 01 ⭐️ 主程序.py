@@ -120,6 +120,9 @@ except ValueError as e:
 KEY = 配置["微软翻译API"]["密钥"]
 REGION = 配置["微软翻译API"]["区域"]
 ENDPOINT = 配置["微软翻译API"]["地址"]
+音频发送启用 = 配置["音频发送"]["启用"]
+音频发送地址 = 配置["音频发送"]["地址"]
+音频发送文件名 = 配置["音频发送"]["文件名"]
 
 # 采样率与 edge-tts 输出一致（24kHz 单声道），缓冲区调小，减少起播延迟
 pygame.mixer.pre_init(frequency=24000, size=-16, channels=1, buffer=512)
@@ -757,6 +760,26 @@ def 翻译窗口线程():
 # 朗读：边合成边收集音频，合成完立刻从内存播放
 # ============================================================
 
+def 发送朗读音频(音频字节):
+    """在后台线程中把已合成的 MP3 发送到配置的网址，不影响本地播放。"""
+    try:
+        with requests.Session() as 会话:
+            # 不读取系统代理设置，避免本机代理不支持 HTTPS 时干扰发送。
+            会话.trust_env = False
+            响应 = 会话.post(
+                音频发送地址,
+                headers={
+                    "Content-Type": "audio/mpeg",
+                    "X-Filename": 音频发送文件名,
+                },
+                data=音频字节,
+                timeout=(5, 30),
+            )
+            响应.raise_for_status()
+        print(f"音频已发送：{音频发送地址}")
+    except Exception as e:
+        print("音频发送失败：", e)
+
 async def 朗读文本(文本):
     global 当前音频缓冲
 
@@ -803,6 +826,9 @@ async def 朗读文本(文本):
         pygame.mixer.music.load(当前音频缓冲, "mp3")
         pygame.mixer.music.play()
         print("正在播放……")
+
+        if 音频发送启用:
+            循环.run_in_executor(None, 发送朗读音频, 音频)
 
     except asyncio.CancelledError:
         print("\n（朗读已被新的操作取消）")
